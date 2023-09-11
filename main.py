@@ -91,9 +91,8 @@ def merge_nodes(G, n1, n2,voltage):
     
     node_indices = nx.get_node_attributes(G, "i")
     
-    node1_idx = node_indices[n1]
-    
-    node2_idx = node_indices[n2]
+    node1_idx = node_indices[n1] if n1 in node_indices else original_node_indices[n1]  
+    node2_idx = node_indices[n2] if n2 in node_indices else original_node_indices[n2] 
     
     G.add_node(supernode_name,supernode=True,v=voltage,node1_index=node1_idx,node2_index=node2_idx,node1=n1,node2=n2)
     node1_edges = G.edges(n1,data=True)
@@ -165,7 +164,7 @@ def merge_nodes(G, n1, n2,voltage):
     
     # print(G.edges(supernode_name,data=True))
 
-
+supernodes_nodes_indices = []
 
     
 def adjust_for_supernodes(G,gnd,A,voltages,row):
@@ -180,22 +179,29 @@ def adjust_for_supernodes(G,gnd,A,voltages,row):
         if node1 == gnd or node2 == gnd:
             continue
         
-        node1_idx = G.nodes[node1]['i']
         
-        node2_idx = G.nodes[node2]['i']
+        
+        node1_idx = G.nodes[node1]['i'] if node1 in G.nodes else original_node_indices[node1]
+        
+        node2_idx = G.nodes[node2]['i'] if node2 in G.nodes else original_node_indices[node2]
+        
+        supernodes_nodes_indices.append(node1_idx)
+        supernodes_nodes_indices.append(node2_idx)
         
         
         
         A[row][node1_idx] += 1
         
+    
        
-        
-        
         A[row][node2_idx] -= 1
         
         voltages[row] += voltage
         
         row -= 1
+        
+        
+        
         
         merge_nodes(G,node1,node2,voltage)
         
@@ -237,7 +243,15 @@ def compute_normal_node_edges(G,row,edges,A,voltages,node_name,node_attrs,gnd):
        
         
         
-        
+        if 'i' in edge_attrs:
+                
+                if node1 == edge_attrs['start']:
+                
+                    voltages[row] += edge_attrs['i']
+                else:
+                    voltages[row] -= edge_attrs['i']
+                
+                continue
         
         
                 
@@ -245,7 +259,13 @@ def compute_normal_node_edges(G,row,edges,A,voltages,node_name,node_attrs,gnd):
             
             A[row][node1_idx] += 1 / edge_attrs['r']
             
-            voltages[row] += edge_attrs['v'] / edge_attrs['r']
+            if node1 == edge_attrs['start']:
+            
+                voltages[row] += edge_attrs['v'] / edge_attrs['r']
+            else:
+                voltages[row] -= edge_attrs['v'] / edge_attrs['r']
+            
+            
             
         elif 'r' in edge_attrs:
             
@@ -255,9 +275,12 @@ def compute_normal_node_edges(G,row,edges,A,voltages,node_name,node_attrs,gnd):
             
             if supernode2 or (node2 != gnd and 'v' not in G.nodes[node2]):
                 A[row][node2_idx] -= 1 / edge_attrs['r']
+                
+                
                
             elif 'v' in G.nodes[node2]:
                 voltages[row] += G.nodes[node2]['v'] / edge_attrs['r']
+                
     
     
         
@@ -300,10 +323,12 @@ def compute_supernode_edges(G,row, edges,A,voltages,node_name,node_attrs,gnd ):
         if node2 != gnd and 'v' not in G.nodes[node2]:
             
             A[row][node2_idx] -= 1 / edge_attrs['r']
+            
+            # print(node2,node2_idx,edge_attrs['r'],row)
         
         
         
-        
+
     
     
 def reindex_graph(G, gnd):
@@ -311,11 +336,17 @@ def reindex_graph(G, gnd):
     
     i = 0
     
+   
+    
     for node in G.nodes(data=True):
         
         if node[0] == gnd or 'supernode' in node[1] or 'v' in node[1]:
             
             continue
+        
+        while i in supernodes_nodes_indices:
+            i += 1
+            
         
         nx.set_node_attributes(G,{node[0]:{'i':i}})
         
@@ -325,6 +356,14 @@ def reindex_graph(G, gnd):
         
     
     # print(G.nodes(data=True))
+
+def store_original_node_indices(G):
+    
+    for node in G.nodes:
+        
+        
+        
+        original_node_indices[node] = G.nodes[node]['i']
 
 
 def construct_nodal_equations(G,gnd):
@@ -341,18 +380,26 @@ def construct_nodal_equations(G,gnd):
     
     n = len(G.nodes) - 1 - known_voltages_num
     
+    print(f'Total nodes: {len(G.nodes)}, Known voltages: {known_voltages_num}, Unknown voltages: {n}\n\n')
     
     
     A = np.zeros((n,n))
     
     voltages = np.zeros((n,1))
     
+    reindex_graph(G,gnd)
+    
+    store_original_node_indices(G)
+    
     adjust_for_supernodes(G,gnd,A,voltages,-1)
     
     reindex_graph(G,gnd)
     
     
+    
     nodes = list(G.nodes(data=True))
+    
+    # print(nodes)
     
     for node in nodes:
         node_name, node_attrs = node
@@ -389,8 +436,7 @@ def add_calculated_voltages_to_nodes(G,node_voltages,gnd):
     
     
     # sort nodes based on index
-    
-    print(G.nodes(data=True))
+
     
     nodes = sorted(G.nodes(data=True),key=lambda node: node[1]['i'])
     
@@ -423,7 +469,7 @@ def add_currents_to_edges(G,gnd):
         
         node1, node2, edge_attrs = edge
         
-        if 'v' in edge_attrs:
+        if 'v' in edge_attrs or 'i' in edge_attrs:
            continue
         
         # switch nodes if edge is directed from gnd to node
@@ -644,7 +690,8 @@ def add_results_to_image(G,image_name,result_image_name):
     
     cv2.waitKey(0)
             
-            
+
+original_node_indices = {}      
 
 
 def main():
@@ -656,6 +703,8 @@ def main():
     G = process_circuit(image_name)
 
     G_copy = G.copy()
+    
+    
 
 
     # T = nx.minimum_spanning_tree(G)
@@ -664,11 +713,13 @@ def main():
 
     gnd = get_ground(G_copy)
 
-    print(gnd)
-    
+
+    print(f'gnd: {gnd}\n\n')
     
 
     node_voltages = construct_nodal_equations(G_copy,gnd)
+    
+    
     
     adjust_indices(G,G_copy)
 
@@ -682,8 +733,7 @@ def main():
 
     # print(gnd)
 
-    print(G.nodes(data=True))
-    print(G.edges(data=True))
+ 
     
     add_results_to_image(G,image_name,"circuit_result.png")
 

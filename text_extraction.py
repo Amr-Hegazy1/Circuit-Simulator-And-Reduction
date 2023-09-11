@@ -41,6 +41,8 @@ def extract_values(image_name):
             box = {'class':class_name,'cords':[int(result[0]),int(result[1]),int(result[2]),int(result[3])]}
         
             boxes.append(box)
+            
+            
 
 
 

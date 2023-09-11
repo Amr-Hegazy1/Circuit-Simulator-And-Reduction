@@ -17,7 +17,7 @@ from text_extraction import extract_values
 
 def get_closest_nodes(resistor_cords,nodes,vertical):
     
-    print(nodes)
+   
     
     resistor_x,resistor_y = resistor_cords
     
@@ -25,7 +25,8 @@ def get_closest_nodes(resistor_cords,nodes,vertical):
     
     if vertical:
         
-        resistor_nodes = filter(lambda x: resistor_x >= x[0] and resistor_x  <= x[2]  ,nodes)
+        resistor_nodes = list(filter(lambda x: resistor_x >= x[0] and resistor_x  <= x[2], nodes))
+        
         
         
         # deep copy the resistor nodes
@@ -47,7 +48,7 @@ def get_closest_nodes(resistor_cords,nodes,vertical):
         
         i = 1
         
-        while resistor_node1 == resistor_node2:
+        while i < len(resistor_nodes_bottom) and resistor_node1 == resistor_node2:
             
             
             resistor_node2 = resistor_nodes_bottom[i]
@@ -59,7 +60,8 @@ def get_closest_nodes(resistor_cords,nodes,vertical):
         
     else:
         
-        resistor_nodes = filter(lambda x: resistor_y >= x[1] and resistor_y  <= x[3],nodes)
+        
+        resistor_nodes = list(filter(lambda x: resistor_y >= x[1] - tolerance and resistor_y  <= x[3] + tolerance,nodes))
         
         
         
@@ -71,12 +73,13 @@ def get_closest_nodes(resistor_cords,nodes,vertical):
         
         
         
-        resistor_nodes_right = list(sorted(list(resistor_nodes1),key=lambda x: abs(resistor_x - x[0])))
+        resistor_nodes_right = list(sorted(resistor_nodes1,key=lambda x: abs(resistor_x - x[0])))
         
-        resistor_nodes_left = list(sorted(list(resistor_nodes2),key=lambda x: abs(x[2] - resistor_x)))
+        resistor_nodes_left = list(sorted(resistor_nodes2,key=lambda x: abs(x[2] - resistor_x)))
         
-        print(resistor_nodes_right,resistor_nodes_left)
         
+
+        # print(resistor_nodes_right,resistor_nodes_left,resistor_cords)
         
         # get the closest node top and bottom of the resistor
         
@@ -85,7 +88,7 @@ def get_closest_nodes(resistor_cords,nodes,vertical):
         
         i = 1
         
-        while resistor_node1 == resistor_node2:
+        while i < len(resistor_nodes_left) and resistor_node1 == resistor_node2:
             
             
             resistor_node2 = resistor_nodes_left[i]
@@ -159,6 +162,7 @@ def add_resistors_to_graph(G,r,nodes,texts):
         
         
         
+        
         if len(resistor_nodes) < 2:
             continue
         
@@ -173,7 +177,7 @@ def add_resistors_to_graph(G,r,nodes,texts):
         
         resistor_text = get_closest_text(resistor_box_cords,texts)
         
-        resistor_text = resistor_text[0]['text']
+        resistor_text = resistor_text[0]['text'] if len(resistor_text) > 0 else "1"
         
         
         
@@ -200,7 +204,7 @@ def add_resistors_to_graph(G,r,nodes,texts):
             
             resistor_value *= 0.000000000001
         
-        
+        # print(f'resistor value: {resistor_value}\n')
         
         G.add_edge(resistor_node1,resistor_node2,r=resistor_value,cords=resistor_cords,box_cords=resistor_box_cords,start=resistor_node1,end=resistor_node2,vertical=vertical)
         
@@ -292,13 +296,13 @@ def extract_nodes(img,boxes):
    
     # cv2.waitKey(0)
     
-    print(nodes)
+
     
     return nodes
 
         
         
-def add_voltage_sources_to_graph(G,v,nodes):
+def add_voltage_sources_to_graph(G,v,nodes,texts):
     
     for voltage_source in v:
             
@@ -319,7 +323,7 @@ def add_voltage_sources_to_graph(G,v,nodes):
             
             voltage_source_nodes = get_closest_nodes(voltage_source_cords,nodes,vertical)
             
-           
+            
             
             if len(voltage_source_nodes) < 2:
                 continue
@@ -336,7 +340,41 @@ def add_voltage_sources_to_graph(G,v,nodes):
             
 
     
-        
+def add_current_sources_to_graph(G,currents,nodes,texts):
+    
+    for current_source in currents:
+            
+            current_source_box_cords = current_source['cords']
+            
+            x1,y1,x2,y2 = current_source_box_cords
+            
+            box_width = abs(x2 - x1)
+            
+            box_height = abs(y2 - y1)
+            
+            vertical = box_height > box_width
+            
+            current_source_cords = [x1 + box_width/2, y1 + box_height/2]
+            
+            
+            # find the nodes that are closest to the resistor
+            
+            current_source_nodes = get_closest_nodes(current_source_cords,nodes,vertical)
+            
+           
+            
+            if len(current_source_nodes) < 2:
+                continue
+            
+            current_source_node1 = current_source_nodes[0]
+            
+            current_source_node2 = current_source_nodes[1]
+            
+            current_source_node1 = "node" + str(current_source_node1[0]) + str(current_source_node1[1])
+            
+            current_source_node2 = "node" + str(current_source_node2[0]) + str(current_source_node2[1])
+            
+            G.add_edge(current_source_node1,current_source_node2,i=1,start=current_source_node1,end=current_source_node2,cords=current_source_cords,box_cords=current_source_box_cords,vertical=vertical)
         
 
 
@@ -350,6 +388,8 @@ def construct_graph(img,boxes,texts):
     r = list(filter(lambda x: x['class'] == 'r', boxes))
     
     v = list(filter(lambda x: x['class'] == 'v', boxes))
+    
+    currents = list(filter(lambda x: x['class'] == 'Current_Source', boxes))
     
     G = nx.MultiGraph()
     
@@ -371,7 +411,11 @@ def construct_graph(img,boxes,texts):
     add_resistors_to_graph(G,r,nodes,texts)
     
     
-    add_voltage_sources_to_graph(G,v,nodes)
+    add_voltage_sources_to_graph(G,v,nodes,texts)
+    
+    add_current_sources_to_graph(G,currents,nodes,texts)
+    
+    
     
     
     
@@ -389,6 +433,39 @@ def index_nodes(G):
     for i,node in enumerate(G.nodes):
         
         G.nodes[node]['i'] = i
+        
+def mask_inductor(img,x1,y1,x2,y2):
+    
+    x1 = int(x1)
+    x2 = int(x2)
+    y1 = int(y1)
+    y2 = int(y2)
+    
+    # draw white rectangle
+    
+    img[y1:y2,x1:x2] = (255,255,255)
+    
+    
+    
+    
+    
+    vertical = abs(y2 - y1) > abs(x2 - x1)
+    
+    if vertical:
+        
+        # draw a line
+        
+        x = (x1+x2) // 2 
+        
+        img = cv2.line(img,(x,y1-5),(x,y2+5),(0,0,0),2)
+        
+    else:
+        
+        y = (y1+y2) // 2 
+        
+        img = cv2.line(img,(x1-5,y),(x2+5,y),(0,0,0),2)
+        
+        
 
     
 def process_circuit(image_name):
@@ -433,15 +510,37 @@ def process_circuit(image_name):
         
         if class_name == "DC_Source":
             class_name = "v"
+            
+        if class_name == "Inductor":
+            mask_inductor(img,result[0],result[1],result[2],result[3])
+            
+        if class_name == "Capacitor":
+            
+            img = cv2.rectangle(img, (int(result[0]),int(result[1])), (int(result[2]),int(result[3])), (255,255,255), -1)
+            
+            
         
         
         box = {'class':class_name,'cords':[int(result[0]),int(result[1]),int(result[2]),int(result[3])]}
         
         boxes.append(box)
 
-
+    
         
     texts = extract_values(image_name)
+    
+    # mask texts
+    
+    for text in texts:
+        x1,y1,x2,y2 = text['cords']
+        
+        x1 = int(x1)
+        x2 = int(x2)
+        y1 = int(y1)
+        y2 = int(y2)
+        
+        img[y1:y2,x1:x2] = (255,255,255)
+    
 
 
     G = construct_graph(img.copy(),boxes,texts)
@@ -455,8 +554,7 @@ def process_circuit(image_name):
     nx.draw(G, with_labels=True, font_weight='bold')
         
     plt.show() 
-
-
+    
     for box in boxes:
         
         color = (random.randint(0,255),random.randint(0,255),random.randint(0,255))
@@ -472,6 +570,9 @@ def process_circuit(image_name):
     cv2.imshow('image', img)
 
     cv2.waitKey(0)
+    
+
+
     
     return G
 

@@ -1,106 +1,253 @@
-# from imgcompare import image_diff_percent
-from PIL import Image
-
-# # make same size
-
-# # resize
-
-# img1 = PIL.Image.open("dc_source.png")
-
-# img2 = PIL.Image.open("dc_target.png")
-
-# img1 = img1.resize((100, 100))
-
-# img2 = img2.resize((100, 100))
-
-
-
-
-
-# percentage = image_diff_percent(img1, img2)
-
-# print(percentage)
-
-# from image_similarity_measures.evaluate import evaluation
-
-# # resize images to same size
-
-# img1 = Image.open("dc_source.png")
-
-# img2 = Image.open("dc_target.png")
-
-# img1 = img1.resize((100, 100))
-
-# img2 = img2.resize((100, 100))
-
-# img1.save("dc_source_resized.png")
-
-# img2.save("dc_target_resized.png")
-
-# res = evaluation(org_img_path="dc_source_resized.png", 
-#            pred_img_path="dc_target_resized.png", 
-#            metrics=["ssim", "fsim", "psnr","issm","sre"])
-# print(res)
-
-# Python program to illustrate HoughLine
-# method for line detection
 import cv2
 import numpy as np
+from PIL import Image
+from arrow_model import ArrowModel
+from plus_minus_model import PlusMinusModel
+import torch
+import torchvision.transforms as transforms
+import os
+import torchvision.models as models
 
-# Reading the required image in
-# which operations are to be done.
-# Make sure that the image is in the same
-# directory in which this python program is
-img = cv2.imread('current_source.png')
 
-# Convert the img to grayscale
-gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+def sharpen_image(img):
+    # Create our shapening kernel, it must equal to one eventually
+    kernel_sharpening = np.array([[-1,-1,-1], 
+                                  [-1, 9,-1],
+                                  [-1,-1,-1]])
+    # applying the sharpening kernel to the input image & displaying it.
+    sharpened = cv2.filter2D(img, -1, kernel_sharpening)
+    return sharpened
 
-# Apply edge detection method on the image
-edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+def get_current_direction(image_path):
 
-# This returns an array of r and theta values
-lines = cv2.HoughLines(edges, 1, np.pi/180, 200)
+    # Read the image
+    img = cv2.imread(image_path)
 
-# The below for loop runs till r and theta values
-# are in the range of the 2d array
-for r_theta in lines:
-	arr = np.array(r_theta[0], dtype=np.float64)
-	r, theta = arr
-	# Stores the value of cos(theta) in a
-	a = np.cos(theta)
+    img = sharpen_image(img)
 
-	# Stores the value of sin(theta) in b
-	b = np.sin(theta)
 
-	# x0 stores the value rcos(theta)
-	x0 = a*r
+    # Convert to grayscale
 
-	# y0 stores the value rsin(theta)
-	y0 = b*r
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-	# x1 stores the rounded off value of (rcos(theta)-1000sin(theta))
-	x1 = int(x0 + 1000*(-b))
 
-	# y1 stores the rounded off value of (rsin(theta)+1000cos(theta))
-	y1 = int(y0 + 1000*(a))
 
-	# x2 stores the rounded off value of (rcos(theta)+1000sin(theta))
-	x2 = int(x0 - 1000*(-b))
 
-	# y2 stores the rounded off value of (rsin(theta)-1000cos(theta))
-	y2 = int(y0 - 1000*(a))
 
-	# cv2.line draws a line in img from the point(x1,y1) to (x2,y2).
-	# (0,0,255) denotes the colour of the line to be
-	# drawn. In this case, it is red.
-	cv2.line(img, (x1, y1), (x2, y2), (0, 0, 255), 2)
+    # find contours
 
-# All the changes made in the input image are finally
-# written on a new image houghlines.jpg
-cv2.imshow('linesDetected', img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    contours, hierarchy = cv2.findContours(gray, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+
+    contours = sorted(contours, key=cv2.contourArea)
+
+
+
+        
+    x, y, w, h = cv2.boundingRect(contours[0])
+
+
+    arrow = img[y:y+h, x:x+w]
+
+
+
+    cv2.imwrite('current_arrow_temp.png', arrow)
+
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    arrow_model = ArrowModel()
+
+
+    classes = ('LEFT', 'RIGHT', 'UP', 'DOWN')
+
+    arrow_model.load_state_dict(torch.load('arrow_model.pth'))
+
+    arrow_model.to(device)
+
+    arrow_model.eval()
+
+    transform = transforms.Compose(
+        [transforms.ToTensor(),
+        transforms.Resize((128, 128)),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    # inference on a single image
+
+    img = Image.open('./current_arrow_temp.png').convert('RGB')
+    img = transform(img)
+    img = img.unsqueeze(0)
+
+
+    outputs = arrow_model(img)
+    _, predicted = torch.max(outputs, 1)
+
+    # print(f'Predicted: {classes[predicted[0]]}')
+    
+    
+    # delete the temporary image
+    os.remove('current_arrow_temp.png')
+    
+    return classes[predicted[0]]
+
+
+def get_voltage_direction(image_path):
+    # Read the image
+    img = cv2.imread(image_path)
+
+    img = sharpen_image(img)
+
+
+    # Convert to grayscale
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+
+
+
+
+    # find contours
+
+    contours, hierarchy = cv2.findContours(gray, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    contours = sorted(contours, key=cv2.contourArea)
+    
+    x1, y1, w, h = cv2.boundingRect(contours[0])
+    
+    padding = 10
+    
+    symbol1 = img[y1-padding:y1+h+padding, x1-padding:x1+w+padding]
+    
+    
+    
+    
+    
+    x2, y2, w, h = cv2.boundingRect(contours[1])
+    
+    symbol2 = img[y2-padding:y2+h+padding, x2-padding:x2+w+padding]
+    
+    
+    cv2.imwrite('symbol1_temp.png', symbol1)
+    
+    cv2.imwrite('symbol2_temp.png', symbol2)
+    
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    
+    
+    
+    classes = ('PLUS', 'MINUS', 'VERTICAL_MINUS')
+    
+    plus_minus_model = models.resnet50()
+    
+    fc = torch.nn.Linear(plus_minus_model.fc.in_features , 3)
+    
+    plus_minus_model.fc = fc
+    
+    plus_minus_model.load_state_dict(torch.load('plus_minus_classifier.pt'))
+    
+    # plus_minus_model.to(device)
+    
+    plus_minus_model.eval()
+    
+    pretrained_size = 224
+    pretrained_means = [0.485, 0.456, 0.406]
+    pretrained_stds= [0.229, 0.224, 0.225]
+    
+    transform = transforms.Compose([
+                           transforms.Resize(pretrained_size),
+                           transforms.CenterCrop(pretrained_size),
+                           transforms.ToTensor(),
+                           transforms.Normalize(mean = pretrained_means, 
+                                                std = pretrained_stds)
+                       ])
+
+    
+    
+    
+    symbol1_img = Image.open('./symbol1_temp.png').convert('RGB')
+    symbol1_img = transform(symbol1_img)
+    symbol1_img = symbol1_img.unsqueeze(0)
+    
+    
+    outputs = plus_minus_model(symbol1_img)
+    _, predicted = torch.max(outputs, 1)
+    
+    predicted_class1 = classes[predicted[0]]
+    
+    
+    
+    
+    
+    symbol2_img = Image.open('./symbol2_temp.png').convert('RGB')
+    symbol2_img = transform(symbol2_img)
+    symbol2_img = symbol2_img.unsqueeze(0)
+    
+    outputs = plus_minus_model(symbol2_img)
+    _, predicted = torch.max(outputs, 1)
+    
+    predicted_class2 = classes[predicted[0]]
+    
+    
+        
+    # delete the temporary image
+    os.remove('symbol1_temp.png')
+    os.remove('symbol2_temp.png')
+    
+    if predicted_class1 == 'VERTICAL_MINUS':
+        predicted_class1 = 'MINUS'
+        
+    if predicted_class2 == 'VERTICAL_MINUS':
+        predicted_class2 = 'MINUS'
+        
+    
+    tolerance = 30
+    
+    print(predicted_class1, predicted_class2)
+    
+    if abs(y1-y2) < tolerance and x1 >= x2 and predicted_class1 == 'PLUS' and predicted_class2 == 'MINUS':
+        return 'RIGHT'
+    
+    if abs(y1-y2) < tolerance and x1 <= x2 and predicted_class1 == 'PLUS' and predicted_class2 == 'MINUS':
+        return 'LEFT'
+    
+    if abs(x1-x2) < tolerance and y1 >= y2 and predicted_class1 == 'PLUS' and predicted_class2 == 'MINUS':
+        return 'DOWN'
+    
+    if abs(x1-x2) < tolerance and y1 <= y2 and predicted_class1 == 'PLUS' and predicted_class2 == 'MINUS':
+        return 'UP'
+    
+    if abs(y1-y2) < tolerance and x1 >= x2 and predicted_class1 == 'MINUS' and predicted_class2 == 'PLUS':
+        return 'LEFT'
+    if abs(y1-y2) < tolerance and x1 <= x2 and predicted_class1 == 'MINUS' and predicted_class2 == 'PLUS':
+        return 'RIGHT'
+    if abs(x1-x2) < tolerance and y1 >= y2 and predicted_class1 == 'MINUS' and predicted_class2 == 'PLUS':
+        return 'UP'
+    if abs(x1-x2) < tolerance and y1 <= y2 and predicted_class1 == 'MINUS' and predicted_class2 == 'PLUS':
+        return 'DOWN'
+    
+    
+    
+    
+    
+
+    
+    
+# print(get_voltage_direction('dc_source.png'))
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

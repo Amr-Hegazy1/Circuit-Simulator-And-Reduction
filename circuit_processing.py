@@ -14,6 +14,10 @@ from ultralytics import YOLO
 
 from text_extraction import extract_values
 
+from orientation_detection import get_current_direction, get_voltage_direction
+
+import os
+
 
 def get_closest_nodes(resistor_cords,nodes,vertical):
     
@@ -302,7 +306,7 @@ def extract_nodes(img,boxes):
 
         
         
-def add_voltage_sources_to_graph(G,v,nodes,texts):
+def add_voltage_sources_to_graph(G,v,nodes,texts,img):
     
     for voltage_source in v:
             
@@ -316,7 +320,17 @@ def add_voltage_sources_to_graph(G,v,nodes,texts):
             
             vertical = box_height > box_width
             
-            voltage_source_cords = [x1 + box_width/2, y1 + box_height/2]
+            voltage_source_cords = [x1 + box_width/2, y1 + box_height/2],
+            
+            # save the voltage source image
+            
+            voltage_source_img = img[y1:y2,x1:x2]
+            
+            cv2.imwrite('voltage_source.png',voltage_source_img)
+            
+            voltage_source_direction = get_voltage_direction('voltage_source.png')
+            
+            os.remove('voltage_source.png')
             
             
             # find the nodes that are closest to the resistor
@@ -332,15 +346,36 @@ def add_voltage_sources_to_graph(G,v,nodes,texts):
             
             voltage_source_node2 = voltage_source_nodes[1]
             
+            if voltage_source_direction == 'UP' and voltage_source_node1[1] > voltage_source_node2[1]:
+                voltage_source_node1,voltage_source_node2 = voltage_source_node2,voltage_source_node1
+                
+            elif voltage_source_direction == 'DOWN' and voltage_source_node1[1] < voltage_source_node2[1]:
+                voltage_source_node1,voltage_source_node2 = voltage_source_node2,voltage_source_node1
+                
+            elif voltage_source_direction == 'LEFT' and voltage_source_node1[0] > voltage_source_node2[0]:
+                voltage_source_node1,voltage_source_node2 = voltage_source_node2,voltage_source_node1
+            
+   
+            elif voltage_source_direction == 'RIGHT' and voltage_source_node1[0] < voltage_source_node2[0]:
+                    voltage_source_node1,voltage_source_node2 = voltage_source_node2,voltage_source_node1
+                
+                
+                
+            
             voltage_source_node1 = "node" + str(voltage_source_node1[0]) + str(voltage_source_node1[1])
             
             voltage_source_node2 = "node" + str(voltage_source_node2[0]) + str(voltage_source_node2[1])
+        
+        
+            
+             
+            
             
             G.add_edge(voltage_source_node1,voltage_source_node2,v=1,start=voltage_source_node1,end=voltage_source_node2,cords=voltage_source_cords,box_cords=voltage_source_box_cords,vertical=vertical)
             
 
     
-def add_current_sources_to_graph(G,currents,nodes,texts):
+def add_current_sources_to_graph(G,currents,nodes,texts,img):
     
     for current_source in currents:
             
@@ -356,6 +391,14 @@ def add_current_sources_to_graph(G,currents,nodes,texts):
             
             current_source_cords = [x1 + box_width/2, y1 + box_height/2]
             
+            current_source_img = img[y1:y2,x1:x2]
+            
+            cv2.imwrite('current_source.png',current_source_img)
+            
+            current_source_direction = get_current_direction('current_source.png')
+            
+            os.remove('current_source.png')
+            
             
             # find the nodes that are closest to the resistor
             
@@ -369,6 +412,21 @@ def add_current_sources_to_graph(G,currents,nodes,texts):
             current_source_node1 = current_source_nodes[0]
             
             current_source_node2 = current_source_nodes[1]
+            
+            
+            if current_source_direction == 'UP' and current_source_node1[1] > current_source_node2[1]:
+                current_source_node1,current_source_node2 = current_source_node2,current_source_node1
+            
+            elif current_source_direction == 'DOWN' and current_source_node1[1] < current_source_node2[1]:
+                current_source_node1,current_source_node2 = current_source_node2,current_source_node1
+            
+            elif current_source_direction == 'LEFT' and current_source_node1[0] > current_source_node2[0]:
+                current_source_node1,current_source_node2 = current_source_node2,current_source_node1
+            
+            elif current_source_direction == 'RIGHT' and current_source_node1[0] < current_source_node2[0]:
+                current_source_node1,current_source_node2 = current_source_node2,current_source_node1
+            
+            
             
             current_source_node1 = "node" + str(current_source_node1[0]) + str(current_source_node1[1])
             
@@ -411,7 +469,7 @@ def construct_graph(img,boxes,texts):
     add_resistors_to_graph(G,r,nodes,texts)
     
     
-    add_voltage_sources_to_graph(G,v,nodes,texts)
+    add_voltage_sources_to_graph(G,v,nodes,texts, img)
     
     add_current_sources_to_graph(G,currents,nodes,texts)
     
